@@ -1,0 +1,87 @@
+name: Check manifest
+
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: '0 12 * * *'
+
+permissions:
+      contents: write 
+
+env:
+  MANIFEST_CACHE: /tmp/old_manifest/version.json
+  MANIFEST_VER_OUT: source_repo/ManifestTool/output/Manifest/version.json
+
+jobs:
+  retrieve-manifest:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          path: 'source_repo'
+          fetch-depth: 1
+
+      - name: Cache manifest
+        id: cache-manifest
+        uses: actions/cache@v6
+        with:
+          path: source_repo/ManifestTool/output
+          key: ss-manifest-${{ github.run_id }}
+          restore-keys: ss-manifest-
+          
+      - name: Check version.json
+        run: |
+          if [ -f "${{ env.MANIFEST_VER_OUT }}" ]; then
+            mkdir -p /tmp/old_manifest
+            cp ${{ env.MANIFEST_VER_OUT }} ${{ env.MANIFEST_CACHE }}
+            echo "OV_EXISTS=true" >> $GITHUB_ENV
+          else
+            echo "OV_EXISTS=false" >> $GITHUB_ENV
+          fi
+        shell: bash
+      
+      - name: Run ManifestTool
+        run: |
+          chmod +x ./ManifestTool
+          ./ManifestTool
+        working-directory: source_repo/ManifestTool/
+
+      - name: Compare version.json
+        id: compare-version
+        run: |
+          if [ "$OV_EXISTS" == "true" ]; then
+            if ! cmp -s ${{ env.MANIFEST_CACHE }} ${{ env.MANIFEST_VER_OUT }}; then
+              echo "CHANGED"
+              echo "changed=true" >> $GITHUB_OUTPUT
+            else
+              echo "NO CHANGE"
+              echo "changed=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "CHANGED (no previous version)"
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+        
+      - name: Auto commit
+        uses: stefanzweifel/git-auto-commit-action@v6
+        with:
+          repository: ./source_repo
+          commit_message: "update: manifest-tool.toml"
+          file_pattern: "ManifestTool/manifest-tool.toml"
+
+      - name: Trigger downstream workflow
+        if: steps.compare-version.outputs.changed == 'true'
+        run: |
+          echo "version.json changed, triggering workflow..."
+          
+
+      # - name: Trigger workflow
+      #   if: steps.compare-version.outputs.changed == 'true'
+      #   uses: benc-uk/workflow-dispatch@v1
+      #   with:
+      #     repo: MakoStar/ss-unpack
+      #     workflow: unpack-lua.yml
+      #     token: ${{ secrets.GH_TOKEN }}
