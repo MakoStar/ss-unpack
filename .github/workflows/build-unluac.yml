@@ -1,0 +1,60 @@
+name: Build unluac
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-unluac:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Checkout unluac
+        uses: actions/checkout@v6
+        with:
+          repository: MakoStar/unluac
+          ref: ss/unluac
+          path: unluac_source
+          token: ${{ secrets.GH_TOKEN }}
+
+      - name: Setup JDK
+        uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Build unluac.jar
+        run: |
+          cd unluac_source
+          if [ ! -f MANIFEST.MF ]; then
+            echo "Main-Class: unluac.Main" > MANIFEST.MF
+          fi
+          mkdir -p build
+          find src -name "*.java" > sources.txt
+          javac -d build @sources.txt
+          jar cfm ssunluac.jar MANIFEST.MF -C build .
+          mkdir -p ../UnluacTool
+          cp ssunluac.jar ../UnluacTool/
+          if [ -f license.txt ]; then
+            cp license.txt ../UnluacTool/unluac-license.txt
+          fi
+        working-directory: ${{ github.workspace }}
+
+      - name: Auto commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add UnluacTool/
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "update: unluac.jar"
+            git push
+          fi
