@@ -2,15 +2,13 @@ name: Check manifest
 
 on:
   workflow_dispatch:
-  # schedule:
-  #   - cron: '0 12 * * *'
 
 permissions:
       contents: write 
 
 env:
-  MANIFEST_CACHE: /tmp/old_manifest/version.json
-  MANIFEST_VER_OUT: source_repo/ManifestTool/output/Manifest/version.json
+  TMP_VERSION_PATH: /tmp/old_manifest/version.json
+  OUT_VERSION_PATH: ManifestTool/output/Manifest/version.json
 
 jobs:
   retrieve-manifest:
@@ -20,43 +18,47 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
-          path: 'source_repo'
           fetch-depth: 1
 
-      - name: Cache manifest
-        id: cache-manifest
-        uses: actions/cache@v6
+      - name: Restore manifest cache
+        uses: actions/cache/restore@v6
         with:
-          path: source_repo/ManifestTool/output
-          key: ss-manifest-${{ github.run_id }}
+          path: ManifestTool/output
+          key: ss-manifest-default
           restore-keys: ss-manifest-
           
-      - name: Check version.json
+      - name: Backup previous version
         run: |
-          if [ -f "${{ env.MANIFEST_VER_OUT }}" ]; then
-            mkdir -p /tmp/old_manifest
-            cp ${{ env.MANIFEST_VER_OUT }} ${{ env.MANIFEST_CACHE }}
-            echo "OV_EXISTS=true" >> $GITHUB_ENV
+          if [ -f "${{ env.OUT_VERSION_PATH }}" ]; then
+            mkdir -p $(dirname "${{ env.TMP_VERSION_PATH }}")
+            cp ${{ env.OUT_VERSION_PATH }} ${{ env.TMP_VERSION_PATH }}
+            echo "TMP_VERSION_EXISTS=true" >> $GITHUB_ENV
           else
-            echo "OV_EXISTS=false" >> $GITHUB_ENV
+            echo "TMP_VERSION_EXISTS=false" >> $GITHUB_ENV
           fi
         shell: bash
       
-      - name: Run ManifestTool
+      - name: Run manifest tool
+        id: run-manifest-tool
+        working-directory: ManifestTool
         run: |
-          chmod +x ./ManifestTool
-          ./ManifestTool
-        working-directory: source_repo/ManifestTool/
+          if [ -f "manifest-tool.toml" ]; then
+            echo "config_exist=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "config_exist=false" >> "$GITHUB_OUTPUT"
+          fi
+          chmod +x ./ManifestTool && ./ManifestTool
+        shell: bash
 
-      - name: Compare version.json
-        id: compare-version
+      - name: Compare version.json changes
+        id: compare-version-file
         run: |
-          if [ "$OV_EXISTS" == "true" ]; then
-            if ! cmp -s ${{ env.MANIFEST_CACHE }} ${{ env.MANIFEST_VER_OUT }}; then
-              echo "CHANGED"
+          if [ "$TMP_VERSION_EXISTS" == "true" ]; then
+            if ! cmp -s ${{ env.TMP_VERSION_PATH }} ${{ env.OUT_VERSION_PATH }}; then
+              echo "VERSION CHANGED"
               echo "changed=true" >> $GITHUB_OUTPUT
             else
-              echo "NO CHANGE"
+              echo "VERSION NO CHANGE"
               echo "changed=false" >> $GITHUB_OUTPUT
             fi
           else
@@ -64,16 +66,23 @@ jobs:
             echo "changed=true" >> $GITHUB_OUTPUT
           fi
         shell: bash
-        
-      - name: Auto commit
+
+      - name: Save manifest cache
+        if: steps.compare-version-file.outputs.changed == 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ManifestTool/output
+          key: ss-manifest-${{ hashFiles(env.OUT_VERSION_PATH) }}
+      
+      - name: Commit tool config
+        if: steps.run-manifest-tool.outputs.config_exist == 'false'
         uses: stefanzweifel/git-auto-commit-action@v6
         with:
-          repository: ./source_repo
           commit_message: "update: manifest-tool.toml"
           file_pattern: "ManifestTool/manifest-tool.toml"
 
-      - name: Trigger downstream workflow
-        if: steps.compare-version.outputs.changed == 'true'
+      - name: Trigger workflow
+        if: steps.compare-version-file.outputs.changed == 'true'
         run: |
           echo "version.json changed, triggering workflow..."
           
