@@ -1,0 +1,15 @@
+# ============================================================
+# 应用程序配置文件
+# 修改后重启应用即可生效
+# ============================================================
+
+
+# ============================================================
+# 特殊文件映射 (文件名基名 -> 目标相对路径)
+# 用于反编译失败时直接复制文件
+# ============================================================
+[SPECIAL_FILES]
+1A70DA105B39911E = "Lua/GameCore/Network/proto.pb"
+3A32D806BA986CC3 = "Lua/Game/CodeGen/table.pb"
+A1F6363BB22AE6FF = "Lua/Game/Adventure/StarTower/roguelike_tempdata.pb"
+D78A06F75FBC0761 = "Lua/Game/Adventure/RoguelikeFloor/roguelike_tempdata.pb"
