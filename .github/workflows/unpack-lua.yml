@@ -1,0 +1,154 @@
+name: Start unpack lua
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  ARCX_FILE_LUA: lua.arcx
+  ARCX_FILE_DATA: data.arcx
+
+  CACHE_MANIFEST_DIR: ManifestTool/output
+  CACHE_ARCHIVE_DIR: sscache-archive-lua
+  CACHE_LUADIFF_DIR: sscache-diff-lua
+  CACHE_UNPACK_DIR: sscache-unpack-lua
+
+  ARCHIVE_OUTPUT_DIR: archive_out_lua
+  LUADIFF_OUTPUT_DIR: lua_diff_out
+
+  UNLUAC_TOOL_PATH: UnluacTool/ssunluac.jar
+  MANIFEST_UNPACK_DIR: ManifestTool/output/Unpack
+  VERSION_JSON: ManifestTool/output/Manifest/version.json
+
+  RESTORE_MANIFEST_KEY_PREFIX: ss-manifest-
+  RESTORE_LUADIFF_KEY_PREFIX: ss-luadiff-
+  RESTORE_UNPACK_KEY_PREFIX: ss-unpack-lua-
+
+jobs:
+  unpack-lua:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Restore manifest cache
+        id: restore-manifest
+        uses: actions/cache/restore@v6
+        with:
+          path: "${{ env.CACHE_MANIFEST_DIR }}"
+          key: "${{ env.RESTORE_MANIFEST_KEY_PREFIX }}default"
+          restore-keys: "${{ env.RESTORE_MANIFEST_KEY_PREFIX }}"
+
+      - name: Restore manifest cache
+        id: restore-luadiff
+        uses: actions/cache/restore@v6
+        with:
+          path: "${{ env.CACHE_LUADIFF_DIR }}"
+          key: "${{ env.RESTORE_LUADIFF_KEY_PREFIX }}${{ hashFiles(env.VERSION_JSON) }}"
+          restore-keys: "${{ env.RESTORE_LUADIFF_KEY_PREFIX }}"
+
+      - name: Run archive tool
+        working-directory: ArchiveTool
+        run: |
+          chmod +x ./ArchiveTool
+          REPO="${{ github.workspace }}"
+          VERSION_JSON="$REPO/${{ env.VERSION_JSON }}"
+          UNPACK_DIR="$REPO/${{ env.MANIFEST_UNPACK_DIR }}"
+          
+          if [ ! -f "$VERSION_JSON" ]; then
+            echo "manifest version.json not found, cannot proceed."
+            exit 1
+          fi
+          
+          for region in $(jq -r 'keys[]' "$VERSION_JSON"); do
+            INPUT_DIR="$UNPACK_DIR/$region/${{ env.ARCX_FILE_LUA }}"
+            OUTPUT_DIR="./${{ env.ARCHIVE_OUTPUT_DIR }}/$region"
+            ./ArchiveTool -i "$INPUT_DIR" -o "$OUTPUT_DIR"
+          done
+        shell: bash
+
+      - name: Run lua diff tool
+        id: run-luadiff-tool
+        working-directory: LuaDiffTool
+        run: |
+          REPO="${{ github.workspace }}"
+          DIR_A="$REPO/${{ env.CACHE_LUADIFF_DIR }}"
+          DIR_B="$REPO/ArchiveTool/${{ env.ARCHIVE_OUTPUT_DIR }}"
+          OUT_DIR="$REPO/LuaDiffTool/${{ env.LUADIFF_OUTPUT_DIR }}"
+
+          [ -d "$DIR_A" ] || mkdir -p "$DIR_A"
+          chmod +x ./LuaDiffTool && ./LuaDiffTool -a "$DIR_A" -b "$DIR_B" -o "$OUT_DIR"
+
+          if [ "$(ls -A "$OUT_DIR" 2>/dev/null)" ]; then
+            echo "Lua diff output has files, updating lua diff cache dir..."
+            cp -r "$OUT_DIR"/* "$DIR_A"/
+            echo "updated=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Lua diff output is empty, no update..."
+            echo "updated=false" >> "$GITHUB_OUTPUT"
+          fi
+        shell: bash
+
+      - name: Save lua diff cache
+        # if: steps.restore-luadiff.outputs.cache-hit != 'true'
+        if: steps.run-luadiff-tool.outputs.updated == 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: "${{ env.CACHE_LUADIFF_DIR }}"
+          key: "${{ env.RESTORE_LUADIFF_KEY_PREFIX }}${{ hashFiles(env.VERSION_JSON) }}"
+
+      - name: Run deccli tool
+        id: run-deccli-tool
+        if: steps.run-luadiff-tool.outputs.updated == 'true'
+        working-directory: DeccliTool
+        run: |
+          chmod +x ./DeccliTool
+          REPO="${{ github.workspace }}"
+          INPUT_DIR="$REPO/LuaDiffTool/${{ env.LUADIFF_OUTPUT_DIR }}"
+          OUTPUT_DIR="$REPO/${{ env.CACHE_UNPACK_DIR }}"
+          TOOL_JAR="$REPO/${{ env.UNLUAC_TOOL_PATH }}"
+          
+          if [ -f "deccli-tool.toml" ]; then
+            echo "config_exist=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "config_exist=false" >> "$GITHUB_OUTPUT"
+          fi
+          
+          [ -d "$OUTPUT_DIR" ] || mkdir -p "$OUTPUT_DIR"
+          ./DeccliTool -i "$INPUT_DIR" -o "$OUTPUT_DIR" -u "$TOOL_JAR"
+          
+          if [ "$(ls -A "$OUTPUT_DIR" 2>/dev/null)" ]; then
+            echo "unluac output has files, updating unpack cache dir..."
+            echo "updated=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "unluac output is empty, no update..."
+            echo "updated=false" >> "$GITHUB_OUTPUT"
+          fi
+        shell: bash
+
+      - name: Save unpack cache
+        if: steps.run-deccli-tool.outputs.updated == 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: "${{ env.CACHE_UNPACK_DIR }}"
+          key: "${{ env.RESTORE_UNPACK_KEY_PREFIX }}${{ hashFiles(env.VERSION_JSON) }}"
+
+      - name: Commit tool config
+        if: steps.run-deccli-tool.outputs.config_exist == 'false'
+        uses: stefanzweifel/git-auto-commit-action@v6
+        with:
+          commit_message: "update: deccli-tool.toml"
+          file_pattern: "DeccliTool/deccli-tool.toml"
+
+      - name: Trigger workflow
+        if: steps.run-deccli-tool.outputs.updated == 'true'
+        uses: benc-uk/workflow-dispatch@v1
+        with:
+          repo: MakoStar/ss-unpack-bot
+          workflow: commit-lua.yml
+          token: ${{ secrets.GH_TOKEN }}
