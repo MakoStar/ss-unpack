@@ -44,7 +44,7 @@ jobs:
           key: "${{ env.RESTORE_MANIFEST_KEY_PREFIX }}default"
           restore-keys: "${{ env.RESTORE_MANIFEST_KEY_PREFIX }}"
 
-      - name: Restore manifest cache
+      - name: Restore luadiff cache
         id: restore-luadiff
         uses: actions/cache/restore@v6
         with:
