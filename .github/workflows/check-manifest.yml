@@ -1,4 +1,4 @@
-name: Check manifest
+name: Check servers manifest
 
 on:
   workflow_dispatch:
