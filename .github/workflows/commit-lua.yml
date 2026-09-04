@@ -1,0 +1,116 @@
+name: Commit unpack lua
+
+on:
+  workflow_dispatch:
+
+permissions:
+      contents: write 
+
+env:
+  ARCX_FILE_LUA: lua.arcx
+  ARCX_FILE_DATA: data.arcx
+
+  CACHE_MANIFEST_DIR: ManifestTool/output
+  CACHE_ARCHIVE_DIR: sscache-archive-lua
+  CACHE_LUADIFF_DIR: sscache-diff-lua
+  CACHE_UNPACK_DIR: sscache-unpack-lua
+
+  ARCHIVE_OUTPUT_DIR: archive_out_lua
+  LUADIFF_OUTPUT_DIR: lua_diff_out
+
+  UNLUAC_TOOL_PATH: UnluacTool/ssunluac.jar
+  MANIFEST_UNPACK_DIR: ManifestTool/output/Unpack
+  VERSION_JSON: ManifestTool/output/Manifest/version.json
+
+  RESTORE_MANIFEST_KEY_PREFIX: ss-manifest-
+  RESTORE_LUADIFF_KEY_PREFIX: ss-luadiff-
+  RESTORE_UNPACK_KEY_PREFIX: ss-unpack-lua-
+  
+
+jobs:
+  commit-lua:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          
+      - name: Restore manifest cache
+        uses: actions/cache/restore@v6
+        with:
+          path: "${{ env.CACHE_MANIFEST_DIR }}"
+          key: "${{ env.RESTORE_MANIFEST_KEY_PREFIX }}default"
+          restore-keys: "${{ env.RESTORE_MANIFEST_KEY_PREFIX }}"
+          
+      - name: Restore unpack lua cache
+        id: restore-luadiff
+        uses: actions/cache/restore@v6
+        with:
+          path: "${{ env.CACHE_UNPACK_DIR }}"
+          key: "${{ env.RESTORE_UNPACK_KEY_PREFIX }}${{ hashFiles(env.VERSION_JSON) }}"
+          restore-keys: "${{ env.RESTORE_UNPACK_KEY_PREFIX }}"
+
+      - name: test
+        run: ls -la "${{ env.CACHE_UNPACK_DIR }}/Lua"
+        shell: bash
+
+      # - name: Clone target repo
+      #   run: |
+      #     rm -rf target_repo || true
+      #     git config --global user.name "github-actions[bot]"
+      #     git config --global user.email "github-actions[bot]@users.noreply.github.com"
+      #     git clone https://x-access-token:${{ secrets.GH_TOKEN }}@github.com/MakoStar/ss-lua.git target_repo
+      #   shell: bash
+        
+      # - name: Sync unpack files
+      #   run: |
+      #     rsync -av --exclude='.git' ${{ env.CACHE_UNPACK_DIR }}/Lua/ target_repo/Lua/
+      #   shell: bash
+        
+      # - name: Commit unpack lua
+      #   run: |
+      #     cd target_repo
+          
+      #     if [ ! -d ".git" ]; then
+      #       echo "Error: .git directory not found, please check clone process"
+      #       exit 1
+      #     fi
+          
+      #     VERSION_JSON="${{ github.workspace }}/${{ env.VERSION_JSON }}"
+          
+      #     if [ ! -f "$VERSION_JSON" ]; then
+      #       echo "manifest version.json not found. skipping commit"
+      #       exit 1
+      #     fi
+          
+      #     for region in $(jq -r 'keys[]' "$VERSION_JSON"); do
+      #       LOWER_REGION=${region,,}
+      #       GAME_VER=$(jq -r ".\"$region\".game_ver" "$VERSION_JSON")
+      #       LUA_VER=$(jq -r ".\"$region\".\"${{ env.ARCX_FILE_LUA }}\"" "$VERSION_JSON")
+      #       PUSH_DIR="Lua/Game/UI/Avg/_${LOWER_REGION}/"
+            
+      #       if [ -d "$PUSH_DIR" ]; then
+      #         git add "$PUSH_DIR"
+      #         if ! git diff --staged --quiet; then
+      #           git commit -m "chore($LOWER_REGION): $GAME_VER $LUA_VER"
+      #           echo "Committed lua for $region"
+      #         else
+      #           echo "No changes to commit for $region"
+      #         fi
+      #       else
+      #         echo "Directory $PUSH_DIR not found, skipping $region"
+      #       fi
+      #     done
+
+      #     git add Lua/
+      #     if ! git diff --staged --quiet; then
+      #       GAME_VER=$(jq -r '.CN.game_ver' "$VERSION_JSON")
+      #       git commit -m "update: $GAME_VER"
+      #       echo "Committed remaining changes"
+      #     else
+      #       echo "No other changes to commit."
+      #     fi
+      #     git push
+      #   shell: bash
