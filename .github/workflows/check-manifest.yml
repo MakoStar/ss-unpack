@@ -83,14 +83,8 @@ jobs:
 
       - name: Trigger workflow
         if: steps.compare-version-file.outputs.changed == 'true'
-        run: |
-          echo "version.json changed, triggering workflow..."
-          
-
-      # - name: Trigger workflow
-      #   if: steps.compare-version.outputs.changed == 'true'
-      #   uses: benc-uk/workflow-dispatch@v1
-      #   with:
-      #     repo: MakoStar/ss-unpack
-      #     workflow: unpack-lua.yml
-      #     token: ${{ secrets.GH_TOKEN }}
+        uses: benc-uk/workflow-dispatch@v1
+        with:
+          repo: MakoStar/ss-unpack-bot
+          workflow: unpack-lua.yml
+          token: ${{ secrets.GH_TOKEN }}
